@@ -27,6 +27,12 @@ describe("remote failure messages", () => {
     );
   });
 
+  it("localizes the SSH installer's Node.js minimum without an upper bound", () => {
+    expect(
+      localizeRemoteFailure("Remote Node.js is unsupported. Select Node.js 22.19 or later", zh),
+    ).toBe("远程 Node.js 版本不受支持，请选择 Node.js 22.19 或更高版本");
+  });
+
   it("leaves SSH and Codex output it does not know unchanged", () => {
     const native = "ssh: connect to host 100.110.60.56 port 22: Operation timed out";
     expect(localizeRemoteFailure(native, zh)).toBe(native);

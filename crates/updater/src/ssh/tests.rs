@@ -123,6 +123,71 @@ exec /bin/sh -c "$4"
 
 #[cfg(unix)]
 #[test]
+fn node_check_accepts_22_19_and_every_later_release() {
+    // Runs the generated JavaScript check on the real Node.js, reporting each fixture version.
+    let real_node = std::env::var_os("PATH")
+        .and_then(|paths| {
+            std::env::split_paths(&paths)
+                .map(|directory| directory.join("node"))
+                .find(|file| file.is_file())
+        })
+        .expect("Node.js must be on PATH to run the SSH version check");
+    let root = std::env::temp_dir().join(format!("codexhost-ssh-version-{}", std::process::id()));
+    let bin = root.join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let preload = root.join("version.cjs");
+    std::fs::write(
+        &preload,
+        "Object.defineProperty(process.versions, \"node\", { value: process.env.FIXTURE_NODE_VERSION });\n",
+    )
+    .unwrap();
+    executable(
+        &bin.join("node"),
+        &format!(
+            "#!/bin/sh\nexec '{}' --require '{}' \"$@\"\n",
+            real_node.display(),
+            preload.display()
+        ),
+    );
+    for tool in ["npm", "codex", "codexhost"] {
+        executable(
+            &bin.join(tool),
+            "#!/bin/sh\nprintf '%s\\n' called >> \"$HOME/calls\"\nexit 0\n",
+        );
+    }
+    let mut r = request();
+    r.action = "install".into();
+    r.version = Some("1.2.3".into());
+    for (version, expected) in [
+        ("20.19.0", 55),
+        ("22.18.0", 55),
+        ("22.18.9", 55),
+        ("22.19.0", 0),
+        ("22.23.3", 0),
+        ("23.0.0", 0),
+        ("24.0.0", 0),
+        ("25.4.0", 0),
+        ("26.0.0", 0),
+    ] {
+        let home = root.join(version);
+        std::fs::create_dir_all(&home).unwrap();
+        let result = Command::new("/bin/sh")
+            .args(["-c", &script(&r).unwrap()])
+            .env_clear()
+            .env("HOME", &home)
+            .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
+            .env("FIXTURE_NODE_VERSION", version)
+            .output()
+            .unwrap();
+        assert_eq!(result.status.code(), Some(expected), "{version}");
+        // A rejected runtime stops before npm or the service is touched.
+        assert_eq!(home.join("calls").exists(), expected == 0, "{version}");
+    }
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
 fn inspect_does_not_require_a_shell_or_node_and_requires_a_state_marker() {
     let root = std::env::temp_dir().join(format!("codexhost-ssh-inspect-{}", std::process::id()));
     std::fs::create_dir_all(&root).unwrap();
